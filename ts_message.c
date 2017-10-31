@@ -340,11 +340,6 @@ TsStatus_t ts_message_encode( TsMessageRef_t message, TsEncoder_t encoder, uint8
             return status;
         }
 
-        case TsEncoderOtt:
-        case TsEncoderNas:
-            // not implemented
-            // fallthrough
-
         default:
             // do nothing
             break;
@@ -383,8 +378,6 @@ TsStatus_t ts_message_decode( TsMessageRef_t message, TsEncoder_t encoder, uint8
         }
 
         case TsEncoderCbor:
-        case TsEncoderOtt:
-        case TsEncoderNas:
             // not implemented
             // fallthrough
 

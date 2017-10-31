@@ -43,8 +43,6 @@ typedef enum {
     TsEncoderDebug,
     TsEncoderJson,
     TsEncoderCbor,
-    TsEncoderOtt,       // TODO
-    TsEncoderNas        // TODO
 } TsEncoder_t;
 
 // field path node
