@@ -1,5 +1,3 @@
-// Copyright (C) 2017 Verizon, Inc. All rights reserved.
-
 #include <string.h>
 #include <stdio.h>
 #include "cbor.h"

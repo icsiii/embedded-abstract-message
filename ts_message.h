@@ -1,4 +1,3 @@
-// Copyright (C) 2017 Verizon, Inc. All rights reserved.
 #ifndef TS_MESSAGE_H
 #define TS_MESSAGE_H
 
