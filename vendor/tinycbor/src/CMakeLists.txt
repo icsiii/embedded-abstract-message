@@ -1,0 +1,11 @@
+add_library(
+        tinycbor
+        cborencoder.c
+        cborerrorstrings.c
+        cborparser_dup_string.c
+        cbortojson.c
+        cborencoder_close_container_checked.c
+        cborparser.c
+        cborpretty.c
+        open_memstream.c
+)
