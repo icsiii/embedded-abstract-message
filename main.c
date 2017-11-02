@@ -4,6 +4,8 @@
 #include <signal.h>
 #include <string.h>
 
+#include "dbg.h"
+#include "cloud_comm.h"
 #include "cbor.h"
 #include "ts_message.h"
 
@@ -23,6 +25,7 @@ typedef struct {
 static void mysighandler();
 static TsStatus_t test01();
 static TsStatus_t test03();
+static TsStatus_t test04();
 
 // main
 int main() {
@@ -50,6 +53,53 @@ static void mysighandler() {
     exit(0);
 }
 
+
+static TsStatus_t test04() {
+
+    // test create
+    TsMessageRef_t sensor;
+    ts_message_create( &sensor );
+    ts_message_set_int( sensor, "setting", 12 );
+    ts_message_set_float( sensor, "temperature", 52.2 );
+
+    TsMessageRef_t message_foo;
+    ts_message_create_message( sensor, "foo", &message_foo );
+    ts_message_set_bool( message_foo, "switch", true );
+    ts_message_set_string( message_foo, "comment", "this is my comment" );
+
+    // create message with header
+    char content[CC_MAX_SEND_BUF_SZ];
+    char content_format[CC_MAX_SEND_BUF_SZ] = "%s{\"characteristicsName\":\"%s\",\"currentValue\":%s}";
+
+    memset( content, 0x00, CC_MAX_SEND_BUF_SZ );
+    for( int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++ ) {
+
+        TsMessageRef_t branch = sensor->value._xfields[ i ];
+        if( branch == NULL) {
+            break;
+        }
+
+        char value[CC_MAX_SEND_BUF_SZ];
+        size_t value_size = CC_MAX_SEND_BUF_SZ;
+        ts_message_encode( branch, TsEncoderJson, (uint8_t*)value, &value_size );
+
+        snprintf( content + strlen( content ), CC_MAX_SEND_BUF_SZ - strlen( content ), content_format,
+                  i > 0 ? "," : "",
+                  branch->name,
+                  value );
+    }
+
+    char message[CC_MAX_SEND_BUF_SZ];
+    char message_format[CC_MAX_SEND_BUF_SZ] = "{\"unitName\":\"%s\",\"unitMacId\":\"%s\",\"unitSerialNo\":\"%s\",\"sensor\":{\"characteristics\":[%s]}}";
+    snprintf( message, CC_MAX_SEND_BUF_SZ, message_format,
+              "unit-name",
+              "unit-device-id",
+              "unit-serial-number",
+              content );
+
+    printf("message = (%s)\n", message );
+    return TsStatusOk;
+}
 static TsStatus_t test03() {
 
     // test create

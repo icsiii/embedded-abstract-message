@@ -2,6 +2,4 @@
 #define TEST_MESSAGE_DBG_H
 
 #define dbg_printf printf
-#define CC_MAX_RECV_BUF_SZ 256
-
 #endif //TEST_MESSAGE_DBG_H

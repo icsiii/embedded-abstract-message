@@ -1,3 +1,5 @@
+// Copyright (C) 2017 Verizon, Inc. All rights reserved.
+
 #include <string.h>
 #include <stdio.h>
 #include "cbor.h"
@@ -6,6 +8,7 @@
 // client debug
 // dbg_printf()
 #include "dbg.h"
+#include "cloud_comm.h"
 
 #include "ts_common.h"
 #include "ts_message.h"
@@ -22,12 +25,13 @@ static bool _ts_message_nodes_initialized = false;
 #endif
 
 // forward references
+#ifdef TS_MESSAGE_STATIC_MEMORY
 static TsStatus_t _ts_message_initialize();
+#endif
 static TsStatus_t _ts_message_set( TsMessageRef_t, TsPathNode_t, TsType_t, TsValue_t );
 static TsStatus_t _ts_message_encode_debug( TsMessageRef_t, int );
 static TsStatus_t _ts_message_encode_json( TsMessageRef_t, int, uint8_t *, size_t );
 static TsStatus_t _ts_message_encode_cbor( TsMessageRef_t, int, CborEncoder *, uint8_t *, size_t );
-static TsStatus_t _ts_message_decode_json( TsMessageRef_t message, int depth, cJSON * value );
 
 // ts_message_create
 TsStatus_t ts_message_create( TsMessageRef_t * message ) {
@@ -139,6 +143,7 @@ TsStatus_t ts_message_destroy( TsMessageRef_t message ) {
 
     // and destroy all children
     if( message->references <= 0 ) {
+
         if( message->type == TsTypeArray || message->type == TsTypeMessage ) {
             for( int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++ ) {
                 if( message->value._xfields[ i ] != NULL) {
@@ -155,6 +160,22 @@ TsStatus_t ts_message_destroy( TsMessageRef_t message ) {
 
     // return ok
     return TsStatusOk;
+}
+
+// ts_message_set
+TsStatus_t ts_message_set( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t value ) {
+
+    // hold the type of the value, since set will force it to be TsTypeMessage
+    TsType_t type = value->type;
+
+    // find the best field (e.g., by name) and set that field to this value
+    TsStatus_t status = _ts_message_set( message, field, TsTypeMessage, value );
+
+    // reset the "new" field (i.e., the given pointer with references bumped by one)
+    // to the correct type.
+    value->type = type;
+
+    return status;
 }
 
 // ts_message_set_null
@@ -194,16 +215,28 @@ TsStatus_t ts_message_set_message( TsMessageRef_t message, TsPathNode_t field, T
 
 // ts_message_has
 TsStatus_t ts_message_has( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value ) {
+    if( message == NULL || field == NULL || value == NULL ) {
+        return TsStatusErrorPreconditionFailed;
+    }
+    if( message->type != TsTypeMessage ) {
+        return TsStatusErrorPreconditionFailed;
+    }
     for( int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++ ) {
-        if( message->value._xfields[ i ] != NULL) {
+        TsMessageRef_t object = message->value._xfields[ i ];
+        if( object == NULL) {
             return TsStatusErrorNotFound;
         }
-        if( strcmp( message->name, field ) == 0 ) {
-            *value = message->value._xfields[ i ];
+        if( strcmp( object->name, field ) == 0 ) {
+            *value = object;
             return TsStatusOk;
         }
     }
     return TsStatusErrorNotFound;
+}
+
+// ts_message_get
+TsStatus_t ts_message_get( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value ) {
+    return ts_message_has( message, field, value );
 }
 
 // ts_message_get_int
@@ -371,7 +404,7 @@ TsStatus_t ts_message_decode( TsMessageRef_t message, TsEncoder_t encoder, uint8
             if( cjson->type == cJSON_Object ) {
                 cjson = cjson->child;
             }
-            TsStatus_t status = _ts_message_decode_json( message, 0, cjson );
+            TsStatus_t status = ts_message_decode_json( message, 0, cjson );
             cJSON_Delete( cjson );
 
             return status;
@@ -387,6 +420,65 @@ TsStatus_t ts_message_decode( TsMessageRef_t message, TsEncoder_t encoder, uint8
             break;
     }
     return TsStatusErrorNotImplemented;
+}
+
+// ts_message_decode_json
+TsStatus_t ts_message_decode_json( TsMessageRef_t message, int depth, cJSON * value ) {
+
+    // decode each node in the current value
+    TsStatus_t status = TsStatusOk;
+    while( value != NULL) {
+
+        // decode current node
+        switch( value->type ) {
+
+            case cJSON_NULL:
+                status = ts_message_set_null( message, value->string );
+                break;
+
+            case cJSON_Number:
+                if( value->valuedouble == (double) ( value->valueint )) {
+                    status = ts_message_set_int( message, value->string, value->valueint );
+                } else {
+                    status = ts_message_set_float( message, value->string, (float) ( value->valuedouble ));
+                }
+                break;
+
+            case cJSON_String:
+                status = ts_message_set_string( message, value->string, value->valuestring );
+                break;
+
+            case cJSON_True:
+                status = ts_message_set_bool( message, value->string, true );
+                break;
+
+            case cJSON_False:
+                status = ts_message_set_bool( message, value->string, false );
+                break;
+
+            case cJSON_Object: {
+
+                TsMessageRef_t content;
+                status = ts_message_create_message( message, value->string, &content );
+                if( status == TsStatusOk ) {
+                    status = ts_message_decode_json( content, depth + 1, value->child );
+                }
+                break;
+            }
+            case cJSON_Array:
+                // TODO
+                // fallthrough
+
+            case cJSON_Invalid:
+            case cJSON_Raw:
+            default:
+                return TsStatusErrorNotImplemented;
+        }
+
+        // get next sibling
+        value = value->next;
+    }
+    return status;
 }
 
 // ////////////////////////////////////////////////////////////////////////////
@@ -617,6 +709,7 @@ static TsStatus_t _ts_message_encode_json( TsMessageRef_t message, int depth, ui
     }
 
     // re-point buffer append
+    // TODO - check for negative sizes, etc.
     char * xbuffer = (char *) buffer;
     size_t xbuffer_size = buffer_size - strlen( xbuffer );
     xbuffer = xbuffer + strlen( xbuffer );
@@ -624,23 +717,23 @@ static TsStatus_t _ts_message_encode_json( TsMessageRef_t message, int depth, ui
     // display type and value
     switch( message->type ) {
         case TsTypeNull:
-            snprintf( xbuffer, xbuffer_size, "\"%s\":null", message->name );
+            snprintf( xbuffer, xbuffer_size, "null" );
             break;
 
         case TsTypeInteger:
-            snprintf( xbuffer, xbuffer_size, "\"%s\":%d", message->name, message->value._xinteger );
+            snprintf( xbuffer, xbuffer_size, "%d", message->value._xinteger );
             break;
 
         case TsTypeFloat:
-            snprintf( xbuffer, xbuffer_size, "\"%s\":%f", message->name, message->value._xfloat );
+            snprintf( xbuffer, xbuffer_size, "%f", message->value._xfloat );
             break;
 
         case TsTypeBoolean:
-            snprintf( xbuffer, xbuffer_size, "\"%s\":%s", message->name, message->value._xboolean ? "true" : "false" );
+            snprintf( xbuffer, xbuffer_size, "%s", message->value._xboolean ? "true" : "false" );
             break;
 
         case TsTypeString:
-            snprintf( xbuffer, xbuffer_size, "\"%s\":\"%s\"", message->name, message->value._xstring );
+            snprintf( xbuffer, xbuffer_size, "\"%s\"", message->value._xstring );
             break;
 
         case TsTypeArray: {
@@ -648,18 +741,17 @@ static TsStatus_t _ts_message_encode_json( TsMessageRef_t message, int depth, ui
             return TsStatusErrorNotImplemented;
         }
         case TsTypeMessage: {
-            if( strcmp( message->name, "$root" ) != 0 ) {
-                snprintf( xbuffer, xbuffer_size, "\"%s\":", message->name );
-            }
             snprintf( xbuffer + strlen( xbuffer ), xbuffer_size - strlen( xbuffer ), "{" );
             for( int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++ ) {
                 TsMessageRef_t branch = message->value._xfields[ i ];
                 if( branch == NULL) {
                     break;
                 } else {
+                    // TODO - check for negative sizes, etc.
                     if( i > 0 ) {
                         snprintf( xbuffer + strlen( xbuffer ), xbuffer_size - strlen( xbuffer ), "," );
                     }
+                    snprintf( xbuffer + strlen( xbuffer ), xbuffer_size - strlen( xbuffer ), "\"%s\":", branch->name );
                     _ts_message_encode_json( branch, depth + 1, buffer, buffer_size );
                 }
             }
@@ -756,63 +848,4 @@ static TsStatus_t _ts_message_encode_cbor( TsMessageRef_t message, int depth, Cb
         return TsStatusErrorOutOfMemory;
     }
     return TsStatusOk;
-}
-
-// _ts_message_decode_json
-static TsStatus_t _ts_message_decode_json( TsMessageRef_t message, int depth, cJSON * value ) {
-
-    // decode each node in the current value
-    TsStatus_t status = TsStatusOk;
-    while( value != NULL) {
-
-        // decode current node
-        switch( value->type ) {
-
-            case cJSON_NULL:
-                status = ts_message_set_null( message, value->string );
-                break;
-
-            case cJSON_Number:
-                if( value->valuedouble == (double) ( value->valueint )) {
-                    status = ts_message_set_int( message, value->string, value->valueint );
-                } else {
-                    status = ts_message_set_float( message, value->string, (float) ( value->valuedouble ));
-                }
-                break;
-
-            case cJSON_String:
-                status = ts_message_set_string( message, value->string, value->valuestring );
-                break;
-
-            case cJSON_True:
-                status = ts_message_set_bool( message, value->string, true );
-                break;
-
-            case cJSON_False:
-                status = ts_message_set_bool( message, value->string, false );
-                break;
-
-            case cJSON_Object: {
-
-                TsMessageRef_t content;
-                status = ts_message_create_message( message, value->string, &content );
-                if( status == TsStatusOk ) {
-                    status = _ts_message_decode_json( content, depth + 1, value->child );
-                }
-                break;
-            }
-            case cJSON_Array:
-                // TODO
-                // fallthrough
-
-            case cJSON_Invalid:
-            case cJSON_Raw:
-            default:
-                return TsStatusErrorNotImplemented;
-        }
-
-        // get next sibling
-        value = value->next;
-    }
-    return status;
 }

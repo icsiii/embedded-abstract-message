@@ -1,9 +1,12 @@
+// Copyright (C) 2017 Verizon, Inc. All rights reserved.
 #ifndef TS_MESSAGE_H
 #define TS_MESSAGE_H
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#include "cJSON.h"
 
 #include "ts_common.h"
 
@@ -98,6 +101,7 @@ TsStatus_t ts_message_create_array( TsMessageRef_t message, TsPathNode_t field, 
 TsStatus_t ts_message_create_message( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value );
 TsStatus_t ts_message_destroy( TsMessageRef_t message );
 
+TsStatus_t ts_message_set( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t value );
 TsStatus_t ts_message_set_null( TsMessageRef_t message, TsPathNode_t field );
 TsStatus_t ts_message_set_int( TsMessageRef_t message, TsPathNode_t field, int value );
 TsStatus_t ts_message_set_float( TsMessageRef_t message, TsPathNode_t field, float value );
@@ -108,6 +112,7 @@ TsStatus_t ts_message_set_message( TsMessageRef_t message, TsPathNode_t field, T
 
 TsStatus_t ts_message_has( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value );
 
+TsStatus_t ts_message_get( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value );
 TsStatus_t ts_message_get_int( TsMessageRef_t message, TsPathNode_t field, int * value );
 TsStatus_t ts_message_get_float( TsMessageRef_t message, TsPathNode_t field, float * value );
 TsStatus_t ts_message_get_string( TsMessageRef_t message, TsPathNode_t field, char ** value );
@@ -115,12 +120,13 @@ TsStatus_t ts_message_get_bool( TsMessageRef_t message, TsPathNode_t field, bool
 TsStatus_t ts_message_get_array( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value );
 TsStatus_t ts_message_get_message( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value );
 
-
+// TODO
 TsStatus_t ts_message_get_size( TsMessageRef_t message, size_t* size);
 TsStatus_t ts_message_get_index( TsMessageRef_t message, size_t index, TsType_t* type, TsValue_t* value );
 
 TsStatus_t ts_message_encode( TsMessageRef_t message, TsEncoder_t encoder, uint8_t * buffer, size_t * buffer_size );
 TsStatus_t ts_message_decode( TsMessageRef_t message, TsEncoder_t encoder, uint8_t * buffer, size_t buffer_size );
+TsStatus_t ts_message_decode_json( TsMessageRef_t message, int depth, cJSON * value );
 
 #ifdef __cplusplus
 }
