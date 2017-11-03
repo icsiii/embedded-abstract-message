@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include "dbg.h"
-#include "cloud_comm.h"
 #include "cbor.h"
 #include "ts_message.h"
 
@@ -26,6 +25,8 @@ static void mysighandler();
 static TsStatus_t test01();
 static TsStatus_t test03();
 static TsStatus_t test04();
+
+#define CC_MAX_SEND_BUF_SZ 2048
 
 // main
 int main() {

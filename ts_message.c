@@ -8,7 +8,6 @@
 // client debug
 // dbg_printf()
 #include "dbg.h"
-#include "cloud_comm.h"
 
 #include "ts_common.h"
 #include "ts_message.h"
@@ -141,7 +140,7 @@ TsStatus_t ts_message_destroy( TsMessageRef_t message ) {
     // simply change its status
     message->references--;
 
-    // and destroy all children
+    // and destroy along with children
     if( message->references <= 0 ) {
 
         if( message->type == TsTypeArray || message->type == TsTypeMessage ) {
@@ -396,11 +395,8 @@ TsStatus_t ts_message_decode( TsMessageRef_t message, TsEncoder_t encoder, uint8
             if( buffer == NULL) {
                 return TsStatusErrorBadRequest;
             }
-            char body[CC_MAX_RECV_BUF_SZ + 1];
-            memset( body, 0x00, CC_MAX_RECV_BUF_SZ + 1 );
-            memcpy( body, buffer, buffer_size );
 
-            cJSON * cjson = cJSON_Parse( body );
+            cJSON * cjson = cJSON_Parse( (const char *)buffer );
             if( cjson->type == cJSON_Object ) {
                 cjson = cjson->child;
             }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.8)
 project(test_message C)
 
 set(CMAKE_C_STANDARD 99)

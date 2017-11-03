@@ -28,7 +28,7 @@
 #define TS_MESSAGE_MAX_BRANCHES     15
 
 // total number of nodes available for messages
-#define TS_MESSAGE_MAX_NODES    ( TS_MESSAGE_MAX_BRANCHES * TS_MESSAGE_MAX_ROOTS )
+#define TS_MESSAGE_MAX_NODES        ( TS_MESSAGE_MAX_BRANCHES * TS_MESSAGE_MAX_ROOTS )
 
 // maximum depth of a message
 // note, this value doesnt affect bss
@@ -56,13 +56,13 @@ typedef TsPathNode_t* TsPath_t;
 
 // supported encoded field types
 typedef enum {
-    TsTypeInteger,      // int*
-    TsTypeFloat,        // float*
-    TsTypeBoolean,      // stdbool, bool*
-    TsTypeString,       // zero terminated byte array (i.e., char *)
-    TsTypeMessage,      // TsMessage_t*[N], where N is the number of fields
-    TsTypeArray,        // TsMessage_t*[N], where N is the number of elements
-    TsTypeNull          // no value
+    TsTypeInteger,  // int*
+    TsTypeFloat,    // float*
+    TsTypeBoolean,  // stdbool, bool*
+    TsTypeString,   // zero terminated byte array (i.e., char *)
+    TsTypeMessage,  // TsMessage_t*[N], where N is the number of fields
+    TsTypeArray,    // TsMessage_t*[N], where N is the number of elements
+    TsTypeNull      // no value
 } TsType_t;
 
 // forward reference and typedef to TsMessage pointer
