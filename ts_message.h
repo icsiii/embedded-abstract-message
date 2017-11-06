@@ -72,6 +72,7 @@ typedef void* TsValue_t;
 
 // field value
 // note, union size will take the largest attribute
+// TODO - switch _xfloat to double, resize when encoding,...
 typedef union TsField * TsFieldRef_t;
 typedef union {
     int             _xinteger;

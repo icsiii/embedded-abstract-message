@@ -1,4 +1,3 @@
-
 #include <string.h>
 #include <stdio.h>
 #include "cbor.h"
@@ -10,7 +9,6 @@
 
 #include "ts_common.h"
 #include "ts_message.h"
-#include "ts_config.h"
 
 // static memory model (warning - affects bss directly)
 // in the spirit of the static-memory design pattern established for the ts-sdk,
@@ -28,6 +26,7 @@ static bool _ts_message_nodes_initialized = false;
 static TsStatus_t _ts_message_initialize();
 #endif
 static TsStatus_t _ts_message_set( TsMessageRef_t, TsPathNode_t, TsType_t, TsValue_t );
+static TsStatus_t _ts_message_get( TsMessageRef_t, TsPathNode_t, TsType_t, TsValue_t );
 static TsStatus_t _ts_message_encode_debug( TsMessageRef_t, int );
 static TsStatus_t _ts_message_encode_json( TsMessageRef_t, int, uint8_t *, size_t );
 static TsStatus_t _ts_message_encode_cbor( TsMessageRef_t, int, CborEncoder *, uint8_t *, size_t );
@@ -240,94 +239,32 @@ TsStatus_t ts_message_get( TsMessageRef_t message, TsPathNode_t field, TsMessage
 
 // ts_message_get_int
 TsStatus_t ts_message_get_int( TsMessageRef_t message, TsPathNode_t field, int * value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        switch( object->type ) {
-            case TsTypeFloat:
-                *value = (int)(object->value._xfloat);
-                return TsStatusOk;
-            case TsTypeInteger:
-                *value = (object->value._xinteger);
-                return TsStatusOk;
-            default:
-                return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeInteger, value );
 }
 
 // ts_message_get_float
 TsStatus_t ts_message_get_float( TsMessageRef_t message, TsPathNode_t field, float * value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        switch( object->type ) {
-            case TsTypeFloat:
-                *value = object->value._xfloat;
-                return TsStatusOk;
-            case TsTypeInteger:
-                *value = (float)(object->value._xinteger);
-                return TsStatusOk;
-            default:
-                return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeFloat, value );
 }
 
 // ts_message_get_string
 TsStatus_t ts_message_get_string( TsMessageRef_t message, TsPathNode_t field, char ** value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeString ) {
-            *value = object->value._xstring;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeString, value );
 }
 
 // ts_message_get_bool
 TsStatus_t ts_message_get_bool( TsMessageRef_t message, TsPathNode_t field, bool * value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeBoolean ) {
-            *value = object->value._xboolean;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeBoolean, value );
 }
 
 // ts_message_get_array
 TsStatus_t ts_message_get_array( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeArray ) {
-            *value = object;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeArray, value );
 }
 
 // ts_message_get_message
 TsStatus_t ts_message_get_message( TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t * value ) {
-    TsMessageRef_t object;
-    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeMessage ) {
-            *value = object;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
-        }
-    }
-    return TsStatusErrorNotFound;
+    return _ts_message_get( message, field, TsTypeMessage, value );
 }
 
 // ts_message_get_size
@@ -631,6 +568,80 @@ static TsStatus_t _ts_message_set( TsMessageRef_t message, TsPathNode_t field, T
     // there isn't a branch available
     dbg_printf( "failed to set (%s), there are no additional nodes available\n", field );
     return TsStatusErrorPayloadTooLarge;
+}
+
+// _ts_message_get
+static TsStatus_t _ts_message_get( TsMessageRef_t message, TsPathNode_t field, TsType_t type, TsValue_t value  ) {
+
+    TsMessageRef_t object;
+    if( ts_message_has( message, field, &object ) == TsStatusOk ) {
+
+        //  automatic type promotion
+        switch( object->type ) {
+
+            case TsTypeInteger: {
+                switch( type ) {
+                    case TsTypeInteger:
+                        *((int *) ( value )) = object->value._xinteger;
+                        return TsStatusOk;
+                    case TsTypeFloat:
+                        *((float *) ( value )) = (float) ( object->value._xinteger );
+                        return TsStatusOk;
+                    default:
+                        return TsStatusErrorPreconditionFailed;
+                }
+            }
+
+            case TsTypeFloat: {
+                switch( type ) {
+                    case TsTypeInteger:
+                        *((int *) ( value )) = (int) ( object->value._xfloat );
+                        return TsStatusOk;
+                    case TsTypeFloat:
+                        *((float *) ( value )) = object->value._xfloat;
+                        return TsStatusOk;
+                    default:
+                        return TsStatusErrorPreconditionFailed;
+                }
+            }
+
+            default:
+                // fallthrough
+                break;
+        }
+
+        // strict type checks, no promotion
+        if( type != object->type ) {
+            return TsStatusErrorPreconditionFailed;
+        }
+        switch( object->type ) {
+
+            case TsTypeBoolean:
+                *((bool*)(value)) = object->value._xboolean;
+                return TsStatusOk;
+
+            case TsTypeString:
+                *((char**)(value)) = object->value._xstring;
+                return TsStatusOk;
+
+
+            case TsTypeMessage:
+            case TsTypeArray:
+                *((TsMessageRef_t*)(value)) = object;
+                *((int*)(value)) = object->value._xinteger;
+                return TsStatusOk;
+
+            default:
+                // fallthrough
+                break;
+        }
+
+        // type not matched (e.g., null)
+        return TsStatusErrorNotImplemented;
+    }
+
+    // field not found
+    return TsStatusErrorNotFound;
 }
 
 // _ts_message_encode_none
