@@ -1,4 +1,3 @@
-// Copyright (C) 2017 Verizon, Inc. All rights reserved.
 
 #include <string.h>
 #include <stdio.h>
@@ -11,6 +10,7 @@
 
 #include "ts_common.h"
 #include "ts_message.h"
+#include "ts_config.h"
 
 // static memory model (warning - affects bss directly)
 // in the spirit of the static-memory design pattern established for the ts-sdk,
@@ -242,11 +242,15 @@ TsStatus_t ts_message_get( TsMessageRef_t message, TsPathNode_t field, TsMessage
 TsStatus_t ts_message_get_int( TsMessageRef_t message, TsPathNode_t field, int * value ) {
     TsMessageRef_t object;
     if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeInteger ) {
-            *value = object->value._xinteger;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
+        switch( object->type ) {
+            case TsTypeFloat:
+                *value = (int)(object->value._xfloat);
+                return TsStatusOk;
+            case TsTypeInteger:
+                *value = (object->value._xinteger);
+                return TsStatusOk;
+            default:
+                return TsStatusErrorPreconditionFailed;
         }
     }
     return TsStatusErrorNotFound;
@@ -256,11 +260,15 @@ TsStatus_t ts_message_get_int( TsMessageRef_t message, TsPathNode_t field, int *
 TsStatus_t ts_message_get_float( TsMessageRef_t message, TsPathNode_t field, float * value ) {
     TsMessageRef_t object;
     if( ts_message_has( message, field, &object ) == TsStatusOk ) {
-        if( object->type == TsTypeFloat ) {
-            *value = object->value._xfloat;
-            return TsStatusOk;
-        } else {
-            return TsStatusErrorPreconditionFailed;
+        switch( object->type ) {
+            case TsTypeFloat:
+                *value = object->value._xfloat;
+                return TsStatusOk;
+            case TsTypeInteger:
+                *value = (float)(object->value._xinteger);
+                return TsStatusOk;
+            default:
+                return TsStatusErrorPreconditionFailed;
         }
     }
     return TsStatusErrorNotFound;
