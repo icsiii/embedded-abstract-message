@@ -10,10 +10,6 @@
 #include "ts_common.h"
 
 /* static memory model (warning - affects bss directly) */
-/* in the spirit of the static-memory design pattern established for the ts-sdk, */
-/* we allow you to avoid malloc and free, instead, we can preallocate memory for */
-/* all of the concurrent message nodes we could ever require. this can easily be */
-/* switched over to a dynamic memory model by commenting out this define. */
 /* #define TS_MESSAGE_STATIC_MEMORY */
 
 /* maximum number of roots */
@@ -75,21 +71,21 @@ typedef void *TsValue_t;
 /* TODO - switch _xfloat to double, resize when encoding,... */
 typedef union TsField *TsFieldRef_t;
 typedef union {
-	int _xinteger;
-	float _xfloat;
-	bool _xboolean;
-	char _xstring[TS_MESSAGE_MAX_STRING_SIZE];
-	TsMessageRef_t _xfields[TS_MESSAGE_MAX_BRANCHES];
-	TsFieldRef_t _xitems[TS_MESSAGE_MAX_BRANCHES];
+	int				_xinteger;
+	float			_xfloat;
+	bool			_xboolean;
+	char			_xstring[TS_MESSAGE_MAX_STRING_SIZE];
+	TsMessageRef_t	_xfields[TS_MESSAGE_MAX_BRANCHES];
+	TsFieldRef_t	_xitems[TS_MESSAGE_MAX_BRANCHES];
 } TsField_t;
 
 /* a single message node binding */
 /* (which, during runtime, could be either a root or a branch node) */
 typedef struct TsMessage {
-	int references;
-	char name[TS_MESSAGE_MAX_KEY_SIZE];
-	TsType_t type;
-	TsField_t value;
+	int				references;
+	char			name[TS_MESSAGE_MAX_KEY_SIZE];
+	TsType_t		type;
+	TsField_t		value;
 } TsMessage_t;
 
 #ifdef __cplusplus

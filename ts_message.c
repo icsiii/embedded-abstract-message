@@ -11,10 +11,6 @@
 #include "ts_message.h"
 
 /* static memory model (warning - affects bss directly) */
-/* in the spirit of the static-memory design pattern established for the ts-sdk, */
-/* we allow you to avoid malloc and free, instead, we can preallocate memory for */
-/* all of the concurrent message nodes we could ever require. this can easily be */
-/* switched over to a dynamic memory model by commenting out the */
 /* TS_MESSAGE_STATIC_MEMORY define. */
 #ifdef TS_MESSAGE_STATIC_MEMORY
 static TsMessage_t _ts_message_nodes[TS_MESSAGE_MAX_NODES];
@@ -654,7 +650,7 @@ static TsStatus_t _ts_message_get(TsMessageRef_t message, TsPathNode_t field, Ts
 		}
 
 		/* type not matched (e.g., null) */
-		return TsStatusErrorNotImplemented;
+		return TsStatusErrorPreconditionFailed;
 	}
 
 	/* field not found */
