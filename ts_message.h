@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "cJSON.h"
+#include "cbor.h"
 
 #include "ts_common.h"
 
@@ -68,15 +69,14 @@ typedef void *TsValue_t;
 
 /* field value */
 /* note, union size will take the largest attribute */
-/* TODO - switch _xfloat to double, resize when encoding,... */
 typedef union TsField *TsFieldRef_t;
 typedef union {
 	int				_xinteger;
 	float			_xfloat;
 	bool			_xboolean;
 	char			_xstring[TS_MESSAGE_MAX_STRING_SIZE];
+	/* TODO - switch to linked list */
 	TsMessageRef_t	_xfields[TS_MESSAGE_MAX_BRANCHES];
-	TsFieldRef_t	_xitems[TS_MESSAGE_MAX_BRANCHES];
 } TsField_t;
 
 /* a single message node binding */
@@ -92,11 +92,14 @@ typedef struct TsMessage {
 extern "C" {
 #endif
 
+/* create and destroy */
 TsStatus_t ts_message_create(TsMessageRef_t *message);
+TsStatus_t ts_message_create_copy(TsMessageRef_t message, TsMessageRef_t *value);
 TsStatus_t ts_message_create_array(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value);
 TsStatus_t ts_message_create_message(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value);
 TsStatus_t ts_message_destroy(TsMessageRef_t message);
 
+/* set and get operations */
 TsStatus_t ts_message_set(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t value);
 TsStatus_t ts_message_set_null(TsMessageRef_t message, TsPathNode_t field);
 TsStatus_t ts_message_set_int(TsMessageRef_t message, TsPathNode_t field, int value);
@@ -116,13 +119,24 @@ TsStatus_t ts_message_get_bool(TsMessageRef_t message, TsPathNode_t field, bool 
 TsStatus_t ts_message_get_array(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value);
 TsStatus_t ts_message_get_message(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value);
 
-/* TODO */
-TsStatus_t ts_message_get_size(TsMessageRef_t message, size_t *size);
-TsStatus_t ts_message_get_index(TsMessageRef_t message, size_t index, TsType_t *type, TsValue_t *value);
+/* array operations */
+TsStatus_t ts_message_get_size(TsMessageRef_t array, size_t *size);
 
+TsStatus_t ts_message_set_at(TsMessageRef_t array, size_t index, TsMessageRef_t item);
+TsStatus_t ts_message_set_int_at(TsMessageRef_t array, size_t index, int value);
+TsStatus_t ts_message_set_float_at(TsMessageRef_t array, size_t index, float value);
+TsStatus_t ts_message_set_string_at(TsMessageRef_t array, size_t index, char* value);
+TsStatus_t ts_message_set_bool_at(TsMessageRef_t array, size_t index, bool value);
+TsStatus_t ts_message_set_array_at(TsMessageRef_t array, size_t index, TsMessageRef_t item);
+TsStatus_t ts_message_set_message_at(TsMessageRef_t array, size_t index, TsMessageRef_t item);
+
+TsStatus_t ts_message_get_at(TsMessageRef_t array, size_t index, TsMessageRef_t *item);
+
+/* encoding and decoding */
 TsStatus_t ts_message_encode(TsMessageRef_t message, TsEncoder_t encoder, uint8_t *buffer, size_t *buffer_size);
 TsStatus_t ts_message_decode(TsMessageRef_t message, TsEncoder_t encoder, uint8_t *buffer, size_t buffer_size);
-TsStatus_t ts_message_decode_json(TsMessageRef_t message, int depth, cJSON *value);
+TsStatus_t ts_message_decode_json(TsMessageRef_t message, cJSON *value);
+TsStatus_t ts_message_decode_cbor(TsMessageRef_t message, CborValue *value);
 
 #ifdef __cplusplus
 }

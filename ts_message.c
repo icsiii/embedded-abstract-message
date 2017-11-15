@@ -16,6 +16,7 @@
 static TsMessage_t _ts_message_nodes[TS_MESSAGE_MAX_NODES];
 static bool _ts_message_nodes_initialized = false;
 #endif
+static int _ts_message_counter = 0;
 
 /* forward references */
 #ifdef TS_MESSAGE_STATIC_MEMORY
@@ -24,8 +25,8 @@ static TsStatus_t _ts_message_initialize();
 static TsStatus_t _ts_message_set(TsMessageRef_t, TsPathNode_t, TsType_t, TsValue_t);
 static TsStatus_t _ts_message_get(TsMessageRef_t, TsPathNode_t, TsType_t, TsValue_t);
 static TsStatus_t _ts_message_encode_debug(TsMessageRef_t, int);
-static TsStatus_t _ts_message_encode_json(TsMessageRef_t, int, uint8_t *, size_t);
-static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t, int, CborEncoder *, uint8_t *, size_t);
+static TsStatus_t _ts_message_encode_json(TsMessageRef_t, uint8_t *, size_t);
+static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t, CborEncoder *, uint8_t *, size_t);
 
 /* ts_message_create */
 TsStatus_t ts_message_create(TsMessageRef_t *message)
@@ -53,6 +54,7 @@ TsStatus_t ts_message_create(TsMessageRef_t *message)
 
 			/* set the return value (root) */
 			*message = &_ts_message_nodes[i];
+			_ts_message_counter++;
 
 			/* return ok */
 			return TsStatusOk;
@@ -68,6 +70,7 @@ TsStatus_t ts_message_create(TsMessageRef_t *message)
 #else
 
 	*message = (TsMessageRef_t) (malloc(sizeof(TsMessage_t)));
+	_ts_message_counter++;
 
 	memset(*message, 0x00, sizeof(TsMessage_t));
 	(*message)->references = 1;
@@ -76,6 +79,61 @@ TsStatus_t ts_message_create(TsMessageRef_t *message)
 
 	return TsStatusOk;
 #endif
+}
+
+/* ts_message_create_message */
+TsStatus_t ts_message_create_copy(TsMessageRef_t message, TsMessageRef_t *value)
+{
+	/* TODO - check depth, check message null */
+	/* allocate a single message node */
+	TsStatus_t status = ts_message_create(value);
+	if (status == TsStatusOk) {
+
+		/* set the field relative to the given message to the new message */
+		snprintf((*value)->name, TS_MESSAGE_MAX_KEY_SIZE, "%s", message->name);
+		(*value)->type = message->type;
+		switch (message->type) {
+		case TsTypeInteger:
+			(*value)->value._xinteger = message->value._xinteger;
+			break;
+
+		case TsTypeFloat:
+			(*value)->value._xfloat = message->value._xfloat;
+			break;
+
+		case TsTypeBoolean:
+			(*value)->value._xboolean = message->value._xboolean;
+			break;
+
+		case TsTypeString:
+			snprintf((*value)->value._xstring, TS_MESSAGE_MAX_STRING_SIZE, "%s", message->value._xstring);
+			break;
+
+		case TsTypeMessage:
+		case TsTypeArray:
+			for (int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++) {
+				if (message->value._xfields[i] == NULL) {
+					break;
+				}
+				TsMessageRef_t field;
+				status = ts_message_create_copy(message->value._xfields[i], &field);
+				if (status != TsStatusOk) {
+					ts_message_destroy(*value);
+					return status;
+				}
+				(*value)->value._xfields[i] = field;
+			}
+			break;
+
+		case TsTypeNull:
+		default:
+			/* do nothing */
+			break;
+		}
+	}
+
+	/* return result */
+	return status;
 }
 
 /* ts_message_create_message */
@@ -102,6 +160,7 @@ TsStatus_t ts_message_create_message(TsMessageRef_t message, TsPathNode_t field,
 }
 
 /* ts_message_create_array */
+/* TODO - precreate array item type and size */
 TsStatus_t ts_message_create_array(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value)
 {
 	/* allocate a single message node */
@@ -150,6 +209,10 @@ TsStatus_t ts_message_destroy(TsMessageRef_t message)
 #else
 		free(message);
 #endif
+		_ts_message_counter--;
+		if( _ts_message_counter <= 0 ) {
+			dbg_printf("ts_message_destroy: all messages that have created are now destroyed\n" );
+		}
 	}
 
 	/* return ok */
@@ -279,17 +342,111 @@ TsStatus_t ts_message_get_message(TsMessageRef_t message, TsPathNode_t field, Ts
 }
 
 /* ts_message_get_size */
-TsStatus_t ts_message_get_size(TsMessageRef_t message, size_t *size)
+TsStatus_t ts_message_get_size(TsMessageRef_t array, size_t *size)
 {
-	/* not implemented */
-	return TsStatusErrorNotImplemented;
+	/* check preconditions */
+	if (array == NULL || array->type != TsTypeArray) {
+		return TsStatusErrorPreconditionFailed;
+	}
+
+	/* return last available position */
+	/* TODO - should manage a cached length attribute instead */
+	*size = TS_MESSAGE_MAX_BRANCHES;
+	for (size_t i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++) {
+		if (array->value._xfields[i] == NULL) {
+			*size = i;
+			break;
+		}
+	}
+	return TsStatusOk;
 }
 
-/* ts_message_get_index */
-TsStatus_t ts_message_get_index(TsMessageRef_t message, size_t index, TsType_t *type, TsValue_t *value)
+/* ts_message_get_at */
+TsStatus_t ts_message_get_at(TsMessageRef_t array, size_t index, TsMessageRef_t *item)
 {
-	/* not implemented */
-	return TsStatusErrorNotImplemented;
+	/* check preconditions */
+	if (array == NULL || array->type != TsTypeArray) {
+		return TsStatusErrorPreconditionFailed;
+	}
+	if (index >= TS_MESSAGE_MAX_BRANCHES || array->value._xfields[index] == NULL) {
+		return TsStatusErrorIndexOutOfRange;
+	}
+
+	/* return indexed value */
+	/* note, we dont bump the reference count when returning this value,
+	 * in this case (unlike set_at below) we expect the caller to NOT call
+	 * destroy on the returned item */
+	*item = array->value._xfields[index];
+	return TsStatusOk;
+}
+
+/* ts_message_set_at */
+TsStatus_t ts_message_set_at(TsMessageRef_t array, size_t index, TsMessageRef_t item)
+{
+
+	/* check preconditions */
+	if (array == NULL || array->type != TsTypeArray) {
+		return TsStatusErrorPreconditionFailed;
+	}
+	size_t length;
+	ts_message_get_size(array, &length);
+	if (index >= TS_MESSAGE_MAX_BRANCHES || index > length) {
+		return TsStatusErrorIndexOutOfRange;
+	}
+
+	/* note, passing NULL in item is the same as resizing the array */
+	if (item == NULL && index < length - 1) {
+		/* the caller should set the contents to NULL, not the item itself */
+		return TsStatusErrorBadRequest;
+	}
+
+	/* remove old,... */
+	TsMessageRef_t current = array->value._xfields[index];
+	if (current != NULL) {
+		ts_message_destroy(current);
+	}
+
+	/* ...and set new and return */
+	/* note, we dont bump the reference count when adding this value
+	 * instead, we make a copy,... */
+	ts_message_create_copy(item, &current);
+	array->value._xfields[index] = current;
+	return TsStatusOk;
+}
+
+TsStatus_t ts_message_set_int_at(TsMessageRef_t array, size_t index, int value)
+{
+	TsMessage_t item = {.type = TsTypeInteger, .value._xinteger = value};
+	return ts_message_set_at(array, index, &item);
+}
+
+TsStatus_t ts_message_set_float_at(TsMessageRef_t array, size_t index, float value)
+{
+	TsMessage_t item = {.type = TsTypeFloat, .value._xfloat = value};
+	return ts_message_set_at(array, index, &item);
+}
+
+TsStatus_t ts_message_set_string_at(TsMessageRef_t array, size_t index, char *value)
+{
+	TsMessage_t item = {.type = TsTypeString};
+	snprintf(item.value._xstring, TS_MESSAGE_MAX_STRING_SIZE, "%s", value);
+	return ts_message_set_at(array, index, &item);
+}
+
+TsStatus_t ts_message_set_bool_at(TsMessageRef_t array, size_t index, bool value)
+{
+	TsMessage_t item = {.type = TsTypeBoolean, .value._xboolean = value};
+	return ts_message_set_at(array, index, &item);
+}
+
+TsStatus_t ts_message_set_array_at(TsMessageRef_t array, size_t index, TsMessageRef_t value)
+{
+	return ts_message_set_at(array, index, value);
+}
+
+TsStatus_t ts_message_set_message_at(TsMessageRef_t array, size_t index, TsMessageRef_t value)
+{
+	return ts_message_set_at(array, index, value);
 }
 
 /* ts_message_encode */
@@ -313,7 +470,7 @@ TsStatus_t ts_message_encode(TsMessageRef_t message, TsEncoder_t encoder, uint8_
 			return TsStatusErrorBadRequest;
 		}
 		memset(buffer, 0x00, *buffer_size);
-		TsStatus_t status = _ts_message_encode_json(message, 0, buffer, *buffer_size);
+		TsStatus_t status = _ts_message_encode_json(message, buffer, *buffer_size);
 		*buffer_size = strlen((char *) buffer);
 		return status;
 	}
@@ -325,7 +482,7 @@ TsStatus_t ts_message_encode(TsMessageRef_t message, TsEncoder_t encoder, uint8_
 		}
 		CborEncoder cbor;
 		cbor_encoder_init(&cbor, buffer, *buffer_size, 0);
-		TsStatus_t status = _ts_message_encode_cbor(message, 0, &cbor, buffer, *buffer_size);
+		TsStatus_t status = _ts_message_encode_cbor(message, &cbor, buffer, *buffer_size);
 		*buffer_size = cbor_encoder_get_buffer_size(&cbor, buffer);
 		return status;
 	}
@@ -358,7 +515,7 @@ TsStatus_t ts_message_decode(TsMessageRef_t message, TsEncoder_t encoder, uint8_
 		if (cjson->type == cJSON_Object) {
 			cjson = cjson->child;
 		}
-		TsStatus_t status = ts_message_decode_json(message, 0, cjson);
+		TsStatus_t status = ts_message_decode_json(message, cjson);
 		cJSON_Delete(cjson);
 
 		return status;
@@ -377,7 +534,7 @@ TsStatus_t ts_message_decode(TsMessageRef_t message, TsEncoder_t encoder, uint8_
 }
 
 /* ts_message_decode_json */
-TsStatus_t ts_message_decode_json(TsMessageRef_t message, int depth, cJSON *value)
+TsStatus_t ts_message_decode_json(TsMessageRef_t message, cJSON *value)
 {
 	/* decode each node in the current value */
 	TsStatus_t status = TsStatusOk;
@@ -415,7 +572,7 @@ TsStatus_t ts_message_decode_json(TsMessageRef_t message, int depth, cJSON *valu
 			TsMessageRef_t content;
 			status = ts_message_create_message(message, value->string, &content);
 			if (status == TsStatusOk) {
-				status = ts_message_decode_json(content, depth + 1, value->child);
+				status = ts_message_decode_json(content, value->child);
 			}
 			break;
 		}
@@ -435,6 +592,13 @@ TsStatus_t ts_message_decode_json(TsMessageRef_t message, int depth, cJSON *valu
 	return status;
 }
 
+/* ts_message_decode_cbor */
+TsStatus_t ts_message_decode_cbor(TsMessageRef_t message, CborValue *value)
+{
+	/* TODO */
+	return TsStatusErrorNotImplemented;
+}
+
 /* //////////////////////////////////////////////////////////////////////////// */
 /* P R I V A T E */
 
@@ -442,7 +606,6 @@ TsStatus_t ts_message_decode_json(TsMessageRef_t message, int depth, cJSON *valu
 /* (private) _ts_message_initialize */
 static TsStatus_t _ts_message_initialize()
 {
-
 	/* report some basic statistics */
 	dbg_printf("initializing messaging, message_t size (%lu) preallocated message nodes (%d)\n", sizeof(TsMessage_t),
 			   TS_MESSAGE_MAX_NODES);
@@ -641,7 +804,6 @@ static TsStatus_t _ts_message_get(TsMessageRef_t message, TsPathNode_t field, Ts
 		case TsTypeMessage:
 		case TsTypeArray:
 			*((TsMessageRef_t *) (value)) = object;
-			*((int *) (value)) = object->value._xinteger;
 			return TsStatusOk;
 
 		default:
@@ -661,17 +823,13 @@ static TsStatus_t _ts_message_get(TsMessageRef_t message, TsPathNode_t field, Ts
 /* simple debug based 'encoder', display the structure of the message as it stands */
 static TsStatus_t _ts_message_encode_debug(TsMessageRef_t message, int depth)
 {
-	/* insure we limit message depth */
-	/* (for the sake of limiting stack size) */
-	if (depth > TS_MESSAGE_MAX_DEPTH) {
-		return TsStatusErrorRecursionTooDeep;
-	}
-
 	/* pretty print (indent) */
 	for (int i = 0; i < depth; i++) {
 		dbg_printf("  ");
 	}
-	dbg_printf("%s", message->name);
+	if (strlen(message->name) > 0) {
+		dbg_printf("%s", message->name);
+	}
 
 	/* display type and value */
 	switch (message->type) {
@@ -698,15 +856,15 @@ static TsStatus_t _ts_message_encode_debug(TsMessageRef_t message, int depth)
 	case TsTypeArray: {
 		dbg_printf(":array\n");
 		for (int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++) {
-			dbg_printf("[%d] = {\n", i);
 			TsMessageRef_t branch = message->value._xfields[i];
 			if (branch == NULL) {
 				break;
-			} else {
-				_ts_message_encode_debug(branch, depth + 1);
 			}
+			dbg_printf("[%d] = {\n", i);
+			_ts_message_encode_debug(branch, depth + 1);
 			dbg_printf("}\n");
 		}
+		break;
 	}
 	case TsTypeMessage: {
 		dbg_printf(":message\n");
@@ -714,9 +872,8 @@ static TsStatus_t _ts_message_encode_debug(TsMessageRef_t message, int depth)
 			TsMessageRef_t branch = message->value._xfields[i];
 			if (branch == NULL) {
 				break;
-			} else {
-				_ts_message_encode_debug(branch, depth + 1);
 			}
+			_ts_message_encode_debug(branch, depth + 1);
 		}
 		break;
 	}
@@ -728,14 +885,8 @@ static TsStatus_t _ts_message_encode_debug(TsMessageRef_t message, int depth)
 }
 
 /* _ts_message_encode_json */
-static TsStatus_t _ts_message_encode_json(TsMessageRef_t message, int depth, uint8_t *buffer, size_t buffer_size)
+static TsStatus_t _ts_message_encode_json(TsMessageRef_t message, uint8_t *buffer, size_t buffer_size)
 {
-	/* insure we limit message depth */
-	/* (for the sake of limiting stack size) */
-	if (depth > TS_MESSAGE_MAX_DEPTH) {
-		return TsStatusErrorRecursionTooDeep;
-	}
-
 	/* re-point buffer append */
 	/* TODO - check for negative sizes, etc. */
 	char *xbuffer = (char *) buffer;
@@ -765,8 +916,29 @@ static TsStatus_t _ts_message_encode_json(TsMessageRef_t message, int depth, uin
 		break;
 
 	case TsTypeArray: {
-		/* TODO - add array */
-		return TsStatusErrorNotImplemented;
+		snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "[");
+		for (int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++) {
+			TsMessageRef_t branch = message->value._xfields[i];
+			if (branch == NULL) {
+				break;
+			}
+			if (i > 0) {
+				/* TODO - check for negative sizes, etc. */
+				snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), ",");
+			}
+			switch (branch->type) {
+			case TsTypeArray:
+				snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "[");
+				_ts_message_encode_json(branch, buffer, buffer_size);
+				snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "]");
+				break;
+			default:
+				_ts_message_encode_json(branch, buffer, buffer_size);
+				break;
+			}
+		}
+		snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "]");
+		break;
 	}
 	case TsTypeMessage: {
 		snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "{");
@@ -780,7 +952,7 @@ static TsStatus_t _ts_message_encode_json(TsMessageRef_t message, int depth, uin
 					snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), ",");
 				}
 				snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "\"%s\":", branch->name);
-				_ts_message_encode_json(branch, depth + 1, buffer, buffer_size);
+				_ts_message_encode_json(branch, buffer, buffer_size);
 			}
 		}
 		snprintf(xbuffer + strlen(xbuffer), xbuffer_size - strlen(xbuffer), "}");
@@ -800,15 +972,9 @@ static TsStatus_t _ts_message_encode_json(TsMessageRef_t message, int depth, uin
 }
 
 /* _ts_message_encode_cbor */
-static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t message, int depth, CborEncoder *encoder, uint8_t *buffer,
+static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t message, CborEncoder *encoder, uint8_t *buffer,
 										  size_t buffer_size)
 {
-	/* insure we limit message depth */
-	/* (for the sake of limiting stack size) */
-	if (depth > TS_MESSAGE_MAX_DEPTH) {
-		return TsStatusErrorRecursionTooDeep;
-	}
-
 	/* display type and value */
 	switch (message->type) {
 	case TsTypeNull:
@@ -861,7 +1027,7 @@ static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t message, int depth, Cbo
 		CborEncoder map;
 		cbor_encoder_create_map(encoder, &map, length);
 		for (int i = 0; i < length; i++) {
-			_ts_message_encode_cbor(message->value._xfields[i], depth + 1, &map, buffer, buffer_size);
+			_ts_message_encode_cbor(message->value._xfields[i], &map, buffer, buffer_size);
 		}
 		cbor_encoder_close_container(encoder, &map);
 		break;
