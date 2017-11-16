@@ -26,10 +26,6 @@
 /* total number of nodes available for messages */
 #define TS_MESSAGE_MAX_NODES        (TS_MESSAGE_MAX_BRANCHES * TS_MESSAGE_MAX_ROOTS)
 
-/* maximum depth of a message */
-/* note, this value doesnt affect bss */
-#define TS_MESSAGE_MAX_DEPTH        5
-
 /* maximum size of a string attribute */
 /* i.e., length of a uuid with dashes (36) plus termination */
 #define TS_MESSAGE_MAX_STRING_SIZE  37
@@ -93,6 +89,7 @@ extern "C" {
 #endif
 
 /* create and destroy */
+TsStatus_t ts_message_report();
 TsStatus_t ts_message_create(TsMessageRef_t *message);
 TsStatus_t ts_message_create_copy(TsMessageRef_t message, TsMessageRef_t *value);
 TsStatus_t ts_message_create_array(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t *value);

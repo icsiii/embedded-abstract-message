@@ -15,8 +15,8 @@
 #ifdef TS_MESSAGE_STATIC_MEMORY
 static TsMessage_t _ts_message_nodes[TS_MESSAGE_MAX_NODES];
 static bool _ts_message_nodes_initialized = false;
-#endif
 static int _ts_message_counter = 0;
+#endif
 
 /* forward references */
 #ifdef TS_MESSAGE_STATIC_MEMORY
@@ -27,6 +27,22 @@ static TsStatus_t _ts_message_get(TsMessageRef_t, TsPathNode_t, TsType_t, TsValu
 static TsStatus_t _ts_message_encode_debug(TsMessageRef_t, int);
 static TsStatus_t _ts_message_encode_json(TsMessageRef_t, uint8_t *, size_t);
 static TsStatus_t _ts_message_encode_cbor(TsMessageRef_t, CborEncoder *, uint8_t *, size_t);
+
+TsStatus_t ts_message_report()
+{
+#ifdef TS_MESSAGE_STATIC_MEMORY
+	dbg_printf("report: counter, %d\n", _ts_message_counter);
+	for (int i = 0; i < TS_MESSAGE_MAX_NODES; i++) {
+		if (_ts_message_nodes[i].references > 0) {
+			dbg_printf("report: referenced node %d: %s has %d references\n",
+					   i,
+					   _ts_message_nodes[i].name,
+					   _ts_message_nodes[i].references);
+		}
+	}
+#endif
+	return TsStatusOk;
+}
 
 /* ts_message_create */
 TsStatus_t ts_message_create(TsMessageRef_t *message)
@@ -65,12 +81,12 @@ TsStatus_t ts_message_create(TsMessageRef_t *message)
 	*message = NULL;
 
 	/* and return an out-of-memory error */
+	dbg_printf("ts_message_create: out of memory");
 	return TsStatusErrorOutOfMemory;
 
 #else
 
 	*message = (TsMessageRef_t) (malloc(sizeof(TsMessage_t)));
-	_ts_message_counter++;
 
 	memset(*message, 0x00, sizeof(TsMessage_t));
 	(*message)->references = 1;
@@ -147,13 +163,16 @@ TsStatus_t ts_message_create_message(TsMessageRef_t message, TsPathNode_t field,
 		snprintf((*value)->name, TS_MESSAGE_MAX_KEY_SIZE, "%s", field);
 		(*value)->type = TsTypeMessage;
 		status = _ts_message_set(message, field, TsTypeMessage, *value);
-	}
 
-	/* always attempt clean up,... */
-	/* i.e., if the set was successful, the reference counter should be (at least) 2 at this point, */
-	/* in which case the message wont be free'd. This is the same behavior that the caller would */
-	/* have performed if they had created the message and called set themselves. */
-	ts_message_destroy(*value);
+		/* since 'set' does not use reference counting (it copies instead), we need
+		 * to clean up the created message and return the copied one (via 'get') */
+		ts_message_destroy(*value);
+		if (status != TsStatusOk) {
+			*value = NULL;
+			return status;
+		}
+		ts_message_get(message, field, value);
+	}
 
 	/* return result */
 	return status;
@@ -171,13 +190,16 @@ TsStatus_t ts_message_create_array(TsMessageRef_t message, TsPathNode_t field, T
 		snprintf((*value)->name, TS_MESSAGE_MAX_KEY_SIZE, "%s", field);
 		(*value)->type = TsTypeArray;
 		status = _ts_message_set(message, field, TsTypeArray, *value);
-	}
 
-	/* always attempt clean up,... */
-	/* i.e., if the set was successful, the reference counter should be (at least) 2 at this point, */
-	/* in which case the message wont be free'd. This is the same behavior that the caller would */
-	/* have performed if they had created the message and called set themselves. */
-	ts_message_destroy(*value);
+		/* since 'set' does not use reference counting (it copies instead), we need
+		 * to clean up the created message and return the copied one (via 'get') */
+		ts_message_destroy(*value);
+		if (status != TsStatusOk) {
+			*value = NULL;
+			return status;
+		}
+		ts_message_get(message, field, value);
+	}
 
 	/* return result */
 	return status;
@@ -206,20 +228,33 @@ TsStatus_t ts_message_destroy(TsMessageRef_t message)
 		}
 #ifdef TS_MESSAGE_STATIC_MEMORY
 		message->references = 0;
+		_ts_message_counter--;
+		if (_ts_message_counter <= 0) {
+			dbg_printf("ts_message_destroy: all messages that had been created are now destroyed\n");
+		}
 #else
 		free(message);
 #endif
-		_ts_message_counter--;
-		if( _ts_message_counter <= 0 ) {
-			dbg_printf("ts_message_destroy: all messages that have created are now destroyed\n" );
-		}
 	}
 
 	/* return ok */
 	return TsStatusOk;
 }
 
-/* ts_message_set */
+/**
+ * Set the given field with the *contents* of the given value, i.e., it does not create a
+ * grandchild of the message with the value name under the field (e.g., message->field->value.field)
+ * but only a child (e.g., message->field)
+ * @param message
+ * The message to set the field on,...
+ * @param field
+ * The field name.
+ * @param value
+ * The value to set the message field too, note that the ownership is not transfered to the message,
+ * instead a copy of the value is made and the value remains independent (and requires a seperate 'destroy')
+ * @return
+ * The status of the call as defined by ts_common.h
+ */
 TsStatus_t ts_message_set(TsMessageRef_t message, TsPathNode_t field, TsMessageRef_t value)
 {
 	/* hold the type of the value, since set will force it to be TsTypeMessage */
@@ -227,10 +262,15 @@ TsStatus_t ts_message_set(TsMessageRef_t message, TsPathNode_t field, TsMessageR
 
 	/* find the best field (e.g., by name) and set that field to this value */
 	TsStatus_t status = _ts_message_set(message, field, TsTypeMessage, value);
+	/* note that this message doesnt take ownership of the given value, so subsequent
+	 * destroys most occur on both the given value and this message in order to
+	 * clean up memory allocated */
 
 	/* reset the "new" field (i.e., the given pointer with references bumped by one) */
 	/* to the correct type. */
-	value->type = type;
+	TsMessageRef_t copy;
+	ts_message_get(message, field, &copy);
+	copy->type = type;
 
 	return status;
 }
@@ -403,12 +443,11 @@ TsStatus_t ts_message_set_at(TsMessageRef_t array, size_t index, TsMessageRef_t 
 	/* remove old,... */
 	TsMessageRef_t current = array->value._xfields[index];
 	if (current != NULL) {
+		array->value._xfields[index] = NULL;
 		ts_message_destroy(current);
 	}
 
 	/* ...and set new and return */
-	/* note, we dont bump the reference count when adding this value
-	 * instead, we make a copy,... */
 	ts_message_create_copy(item, &current);
 	array->value._xfields[index] = current;
 	return TsStatusOk;
@@ -635,7 +674,9 @@ static TsStatus_t _ts_message_initialize()
  * @param type
  * The type of the message, e.g., TsTypeInteger, TsTypeFloat, etc.
  * @param value
- * The value of the message, e.g., int, float, etc.
+ * The value of the message, e.g., int, float, etc. Warning, if the given value is a message or array type, the
+ * value is copied (not reference counted), the caller will need to insure the value is deleted w/o.r.t. the given
+ * message's eventual 'destroy'.
  * @return
  * The status of the call as defined by ts_common.h
  */
@@ -659,6 +700,12 @@ static TsStatus_t _ts_message_set(TsMessageRef_t message, TsPathNode_t field, Ts
 			branch = message->value._xfields[i];
 			if (branch == NULL || strcmp(field, branch->name) == 0) {
 
+				/* destroy the old message if overwriting a new value */
+				if (branch != NULL) {
+					message->value._xfields[i] = NULL;
+					ts_message_destroy(branch);
+				}
+
 				/* establish branch */
 				switch (type) {
 
@@ -666,31 +713,31 @@ static TsStatus_t _ts_message_set(TsMessageRef_t message, TsPathNode_t field, Ts
 				case TsTypeFloat:
 				case TsTypeBoolean:
 				case TsTypeString:
-				case TsTypeNull:
-
-					/* destroy the old message if overwriting a new value */
-					if (branch != NULL) {
-						ts_message_destroy(branch);
-					}
+				case TsTypeNull: {
 
 					/* (re)create a new messsage */
 					TsStatus_t status = ts_message_create(&branch);
 					if (status != TsStatusOk) {
+						dbg_printf("_ts_message_set: failed to create new primitive(%d)\n", status);
 						return status;
 					}
 					break;
-
+				}
 				case TsTypeMessage:
-				case TsTypeArray:
+				case TsTypeArray: {
 
-					/* clear out old node and establish new */
-					ts_message_destroy(branch);
-					branch = (TsMessageRef_t) value;
-
-					/* the caller is expected to destroy the given message (i.e., held by 'value'), */
-					/* by bumping the reference we insure the message doesnt free. */
-					branch->references++;
+					/* copy given messsage */
+					TsStatus_t status = ts_message_create_copy((TsMessageRef_t) value, &branch);
+					if (status != TsStatusOk) {
+						dbg_printf("_ts_message_set: failed to copy message or array(%d)\n", status);
+						return status;
+					}
 					break;
+				}
+				default:
+
+					dbg_printf("_ts_message_set: unknown type\n");
+					return TsStatusErrorBadRequest;
 				}
 			} else {
 				continue;
@@ -860,8 +907,14 @@ static TsStatus_t _ts_message_encode_debug(TsMessageRef_t message, int depth)
 			if (branch == NULL) {
 				break;
 			}
+			for (int i = 0; i < depth; i++) {
+				dbg_printf("  ");
+			}
 			dbg_printf("[%d] = {\n", i);
 			_ts_message_encode_debug(branch, depth + 1);
+			for (int i = 0; i < depth; i++) {
+				dbg_printf("  ");
+			}
 			dbg_printf("}\n");
 		}
 		break;

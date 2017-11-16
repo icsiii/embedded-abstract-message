@@ -26,6 +26,7 @@ static TsStatus_t test01();
 static TsStatus_t test03();
 static TsStatus_t test04();
 static TsStatus_t test05();
+static TsStatus_t test06();
 
 #define CC_MAX_SEND_BUF_SZ 2048
 
@@ -41,7 +42,7 @@ int main()
 	sigaction(SIGINT, &sigIntHandler, NULL);
 	sigaction(SIGSEGV, &sigIntHandler, NULL);
 
-	TsStatus_t status = test03();
+	TsStatus_t status = test06();
 	if (status != TsStatusOk) {
 		printf("an error occurred while encoding, %d\n", status);
 	}
@@ -53,6 +54,61 @@ static void mysighandler()
 {
 	printf("\nfault\n");
 	exit(0);
+}
+
+static TsStatus_t test06()
+{
+	// TODO - MEMORY LEAK SHOWS UP WHEN USING THIS CODE...
+
+	TsMessageRef_t sensor, location;
+	ts_message_create(&sensor);
+	ts_message_set_float(sensor, "temperature", 57.7);
+	ts_message_create_message(sensor, "location", &location);
+	ts_message_set_float(location, "latitude", 42.361145f);
+	ts_message_set_float(location, "longitude", -71.057083f);
+
+	/* create message content */
+	TsMessageRef_t message, sensors, characteristics;
+	ts_message_create(&message);
+	ts_message_set_string(message, "unitName", "unit-name");
+	ts_message_set_string(message, "unitMacId", "device-id");
+	ts_message_set_string(message, "unitSerialNo", "unit-serial-number");
+	ts_message_create_message(message, "sensor", &sensors);
+	ts_message_create_array(sensors, "characteristics", &characteristics);
+
+	/* for each field of the message,... */
+	for (int i = 0; i < TS_MESSAGE_MAX_BRANCHES; i++ ) {
+
+		/* the "for-each" behavior terminates on a NULL or max-size */
+		TsMessageRef_t branch = sensor->value._xfields[ i ];
+		if (branch == NULL) {
+			break;
+		}
+
+		/* transform into the form expected by the server */
+		TsMessageRef_t characteristic;
+		ts_message_create(&characteristic);
+		ts_message_set_string(characteristic, "characteristicsName", branch->name);
+		ts_message_set(characteristic, "currentValue", branch);
+		ts_message_set_message_at(characteristics, i, characteristic);
+		ts_message_encode(characteristic, TsEncoderDebug, NULL, 0);
+		ts_message_destroy(characteristic);
+	}
+
+	/* encode copy to send buffer */
+	uint8_t buffer[2048];
+	size_t buffer_size = 2048;
+	ts_message_encode(message, TsEncoderJson, buffer, &buffer_size);
+
+	/* TODO - remove debug */
+	ts_message_encode(message, TsEncoderDebug, NULL, 0);
+
+	/* clean up */
+	ts_message_destroy(message);
+	ts_message_destroy(sensor);
+	ts_message_report();
+
+	return TsStatusOk;
 }
 
 static TsStatus_t test05()
