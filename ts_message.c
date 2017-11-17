@@ -10,7 +10,7 @@
 #include "ts_common.h"
 #include "ts_message.h"
 
-/* static memory model (warning - affects bss directly) */
+/* static memory model, e.g., for debug (warning - affects bss directly) */
 /* TS_MESSAGE_STATIC_MEMORY define. */
 #ifdef TS_MESSAGE_STATIC_MEMORY
 static TsMessage_t _ts_message_nodes[TS_MESSAGE_MAX_NODES];
@@ -413,9 +413,6 @@ TsStatus_t ts_message_get_at(TsMessageRef_t array, size_t index, TsMessageRef_t 
 	}
 
 	/* return indexed value */
-	/* note, we dont bump the reference count when returning this value,
-	 * in this case (unlike set_at below) we expect the caller to NOT call
-	 * destroy on the returned item */
 	*item = array->value._xfields[index];
 	return TsStatusOk;
 }
@@ -423,7 +420,6 @@ TsStatus_t ts_message_get_at(TsMessageRef_t array, size_t index, TsMessageRef_t 
 /* ts_message_set_at */
 TsStatus_t ts_message_set_at(TsMessageRef_t array, size_t index, TsMessageRef_t item)
 {
-
 	/* check preconditions */
 	if (array == NULL || array->type != TsTypeArray) {
 		return TsStatusErrorPreconditionFailed;

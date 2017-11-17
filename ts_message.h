@@ -10,7 +10,7 @@
 
 #include "ts_common.h"
 
-/* static memory model (warning - affects bss directly) */
+/* static memory model, e.g., for debug (warning - affects bss directly) */
 /* #define TS_MESSAGE_STATIC_MEMORY */
 
 /* maximum number of roots */

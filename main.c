@@ -58,8 +58,6 @@ static void mysighandler()
 
 static TsStatus_t test06()
 {
-	// TODO - MEMORY LEAK SHOWS UP WHEN USING THIS CODE...
-
 	TsMessageRef_t sensor, location;
 	ts_message_create(&sensor);
 	ts_message_set_float(sensor, "temperature", 57.7);
