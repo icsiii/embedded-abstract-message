@@ -1,4 +1,3 @@
-/* Copyright (C) 2017 Verizon, Inc. All rights reserved. */
 #ifndef TS_COMMON_H
 #define TS_COMMON_H
 
